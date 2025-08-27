@@ -7,7 +7,7 @@
        src="https://github.com/user-attachments/assets/3ed94926-52a8-4517-b19e-a136a0d24822" 
        style="border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.15);" />
 </td>
-<td style="vertical-align: middle; padding-left: 15px;">
+<td style="vertical-align: middle; padding-left: 10px;">
   An intelligent task scheduler that uses a machine learning model to dynamically decide when to offload computationally intensive tasks from the CPU to the GPU.  
   <br><br>
   Its goal is to improve overall system throughput by using hardware resources more effectively.
