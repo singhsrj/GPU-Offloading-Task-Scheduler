@@ -1,6 +1,17 @@
 # GPU Offloading Task Scheduler
 
-An intelligent task scheduler that uses a machine learning model to dynamically decide when to offload computationally intensive tasks from the CPU to the GPU. Its goal is to improve overall system throughput by using hardware resources more effectively.
+<table>
+<tr>
+<td>
+  <img width="768" height="512" alt="40b20df9-49a1-43d2-8cdd-5672ef0c0398" src="https://github.com/user-attachments/assets/3ed94926-52a8-4517-b19e-a136a0d24822" />
+</td>
+<td style="vertical-align: top; padding-left: 20px;">
+  An intelligent task scheduler that uses a machine learning model to dynamically decide when to offload computationally intensive tasks from the CPU to the GPU.  
+  <br><br>
+  Its goal is to improve overall system throughput by using hardware resources more effectively.
+</td>
+</tr>
+</table>
 
 ---
 
