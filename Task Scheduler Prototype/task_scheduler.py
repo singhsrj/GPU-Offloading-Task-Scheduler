@@ -50,26 +50,22 @@ class Kernels:
 
     @staticmethod
     def cpu_vector_add(a, b):
-        """CPU Vector Add using NumPy."""
         return np.add(a, b)
 
     @staticmethod
     def gpu_vector_add(a_gpu, b_gpu):
-        """GPU Vector Add using CuPy."""
         return cp.add(a_gpu, b_gpu)
 
     @staticmethod
     def cpu_matrix_mul(a, b):
-        """CPU Matrix Multiply using NumPy."""
         return np.dot(a, b)
 
     @staticmethod
     def gpu_matrix_mul(a_gpu, b_gpu):
-        """GPU Matrix Multiply using CuPy."""
         return cp.dot(a_gpu, b_gpu)
 
 
-# --- Phases 1 & 2: Task Scheduler, Dispatcher, and Policy Logic ---
+# Task Scheduler, Dispatcher, and Policy Logic
 
 class TaskScheduler:
     """
@@ -81,7 +77,7 @@ class TaskScheduler:
     def __init__(self, policy: ExecutionPolicy = ExecutionPolicy.PRIORITY):
         self.policy_type = policy
         
-        # Phase 2: Policy Switch implementation.
+        # Policy Switch implementation.
         # Select the queue type based on the chosen policy.
         if self.policy_type == ExecutionPolicy.PRIORITY:
             # PriorityQueue automatically handles task ordering based on the
@@ -89,7 +85,7 @@ class TaskScheduler:
             self.task_queue = queue.PriorityQueue()
             print("Scheduler initialized with PRIORITY policy.")
         else:
-            # Standard FIFO queue for Round-Robin.
+            #  Round-Robin.
             self.task_queue = queue.Queue()
             print("Scheduler initialized with ROUND_ROBIN (FIFO) policy.")
 
@@ -106,6 +102,7 @@ class TaskScheduler:
     def start_workers(self):
         """Starts all background threads."""
         print("Starting Dispatcher, CPU Worker, and GPU Worker threads...")
+        print("\n")
         self.dispatcher_thread.start()
         self.cpu_worker_thread.start()
         self.gpu_worker_thread.start()
@@ -194,7 +191,7 @@ class TaskScheduler:
                     Kernels.cpu_matrix_mul(task.data['a'], task.data['b'])
                 
                 duration = (time.perf_counter() - start_time) * 1000
-                print(f"  [CPU-WORKER] ✅ Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
+                print(f"  [CPU-WORKER] Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
                 self.cpu_queue.task_done()
                 
             except Exception as e:
@@ -230,12 +227,12 @@ class TaskScheduler:
                 result_host = cp.asnumpy(result_gpu) # Transfer Device -> Host
 
                 duration = (time.perf_counter() - start_time) * 1000
-                print(f"  [GPU-WORKER] 🔥 Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
+                print(f"  [GPU-WORKER] Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
                 self.gpu_queue.task_done()
 
             except cp.cuda.runtime.CudaError as e:
                 # --- Phase 4: Graceful Degradation / Fallback Handling ---
-                print(f"  [GPU-WORKER-ERROR] ❌ CUDA Error on Task {task.task_id[:6]}: {e}. FALLING BACK TO CPU.")
+                print(f"  [GPU-WORKER-ERROR] CUDA Error on Task {task.task_id[:6]}: {e}. FALLING BACK TO CPU.")
                 # Re-queue the failed task to the CPU queue instead of failing.
                 self.cpu_queue.put(task) 
                 self.gpu_queue.task_done()
@@ -258,6 +255,7 @@ class TaskScheduler:
         self.task_queue.put(None) 
         self.cpu_queue.put(None)
         self.gpu_queue.put(None)
+        print("\n")
         print("All tasks complete. Shutdown complete.")
 
 
@@ -265,7 +263,7 @@ class TaskScheduler:
 
 def workload_generator(scheduler, num_tasks=20):
     """Submits a mix of random tasks to the scheduler."""
-    print(f"--- Starting Workload Generator: Submitting {num_tasks} mixed tasks ---")
+    print(f" Starting Workload Generator: Submitting {num_tasks} mixed tasks ")
     for i in range(num_tasks):
         # Generate a random task
         priority = random.randint(1, 10) # 1 = highest prio
