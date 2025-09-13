@@ -1,0 +1,8 @@
+cupy-cuda11x==13.6.0
+numpy
+seaborn
+matplotlib
+scikit-learn
+pandas
+psutil
+pynvml==13.0.1
