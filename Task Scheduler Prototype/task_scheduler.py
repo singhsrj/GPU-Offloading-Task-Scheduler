@@ -5,6 +5,7 @@ import uuid
 import random
 import numpy as np
 import cupy as cp
+import pandas as pd
 from enum import Enum, auto
 from dataclasses import dataclass, field
 
@@ -14,18 +15,16 @@ class TaskType(Enum):
     """Defines the types of computational tasks we accept."""
     VECTOR_ADD = auto()
     MATRIX_MUL = auto()
+    NEURAL_NETWORK_TRAINING = auto() # New task for NN training
 
 class ExecutionPolicy(Enum):
     """Defines which scheduling policy the main queue should use."""
-    ROUND_ROBIN = auto() # FIFO queue
-    PRIORITY = auto()    # Priority queue
+    ROUND_ROBIN = auto()
+    PRIORITY = auto()
 
 @dataclass
 class Task:
-    """
-    Data structure for a single task. We make it orderable for the PriorityQueue.
-    Priority: Lower number = higher priority.
-    """
+    """Data structure for a single task, orderable for the PriorityQueue."""
     priority: int
     task_type: TaskType
     size: int
@@ -33,285 +32,241 @@ class Task:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     submit_time: float = field(default_factory=time.time)
 
-    # Implement __lt__ (less-than) for the priority queue.
-    # It compares tasks based on priority. If priorities are equal,
-    # it falls back to the submission time (Earliest Task First).
     def __lt__(self, other):
         if self.priority == other.priority:
             return self.submit_time < other.submit_time
         return self.priority < other.priority
 
 class Kernels:
-    """
-    Container for our CPU (NumPy) and GPU (CuPy) compute functions.
-    This matches the operations defined in your attempt2.cu file.
-   
-    """
+    """Container for our CPU (NumPy) and GPU (CuPy) compute functions."""
 
     @staticmethod
-    def cpu_vector_add(a, b):
-        return np.add(a, b)
+    def cpu_vector_add(a, b): return np.add(a, b)
+    @staticmethod
+    def gpu_vector_add(a_gpu, b_gpu): return cp.add(a_gpu, b_gpu)
+    @staticmethod
+    def cpu_matrix_mul(a, b): return np.dot(a, b)
+    @staticmethod
+    def gpu_matrix_mul(a_gpu, b_gpu): return cp.dot(a_gpu, b_gpu)
 
     @staticmethod
-    def gpu_vector_add(a_gpu, b_gpu):
-        return cp.add(a_gpu, b_gpu)
+    def train_neural_network(X_train, Y_train, iterations, alpha=0.1, h1=256, h2=128):
+        """
+        Encapsulated neural network training function.
+        It intelligently uses NumPy or CuPy based on the type of the input arrays.
+        """
+        xp = cp.get_array_module(X_train) # Use CuPy if data is on GPU, else NumPy
 
-    @staticmethod
-    def cpu_matrix_mul(a, b):
-        return np.dot(a, b)
+        # --- Helper Functions (using xp for dual CPU/GPU compatibility) ---
+        def he_initialization(fan_in, num_neurons):
+            std = xp.sqrt(2.0 / fan_in)
+            W = xp.random.randn(num_neurons, fan_in) * std
+            b = xp.zeros((num_neurons, 1))
+            return W, b
 
-    @staticmethod
-    def gpu_matrix_mul(a_gpu, b_gpu):
-        return cp.dot(a_gpu, b_gpu)
+        def ReLU(Z): return xp.maximum(0, Z)
+        def derivative_ReLU(Z): return (Z > 0).astype(xp.float32)
+        def softplus(Z): return xp.log1p(xp.exp(Z))
+        def derivative_softplus(Z): return 1 / (1 + xp.exp(-Z))
+        def softmax(Z):
+            shift = Z - xp.max(Z, axis=0, keepdims=True)
+            exp_Z = xp.exp(shift)
+            return exp_Z / xp.sum(exp_Z, axis=0, keepdims=True)
+        
+        def one_hot(Y, num_classes=10):
+            m = Y.size
+            Y_oh = xp.zeros((num_classes, m))
+            Y_oh[Y, xp.arange(m)] = 1
+            return Y_oh
 
+        # --- Main Training Logic ---
+        n_x, n_y = X_train.shape[0], 10
+        W1, b1 = he_initialization(n_x, h1)
+        W2, b2 = he_initialization(h1, h2)
+        W3, b3 = he_initialization(h2, n_y)
 
-# Task Scheduler, Dispatcher, and Policy Logic
+        for i in range(iterations):
+            # Forward propagation
+            Z1 = W1.dot(X_train) + b1
+            A1 = ReLU(Z1)
+            Z2 = W2.dot(A1) + b2
+            A2 = softplus(Z2)
+            Z3 = W3.dot(A2) + b3
+            A3 = softmax(Z3)
+
+            # Backward propagation
+            m = Y_train.size
+            Y_oh = one_hot(Y_train)
+            dZ3 = A3 - Y_oh
+            dW3 = (1/m) * dZ3.dot(A2.T)
+            db3 = (1/m) * xp.sum(dZ3, axis=1, keepdims=True)
+            dZ2 = W3.T.dot(dZ3) * derivative_softplus(Z2)
+            dW2 = (1/m) * dZ2.dot(A1.T)
+            db2 = (1/m) * xp.sum(dZ2, axis=1, keepdims=True)
+            dZ1 = W2.T.dot(dZ2) * derivative_ReLU(Z1)
+            dW1 = (1/m) * dZ1.dot(X_train.T)
+            db1 = (1/m) * xp.sum(dZ1, axis=1, keepdims=True)
+
+            # Update parameters
+            W1 -= alpha * dW1; b1 -= alpha * db1
+            W2 -= alpha * dW2; b2 -= alpha * db2
+            W3 -= alpha * dW3; b3 -= alpha * db3
+
+            if i % 100 == 0: alpha *= 0.9
+
+        return W1, b1, W2, b2, W3, b3 # Return trained weights
+
+# --- Phases 1 & 2: Task Scheduler, Dispatcher, and Policy Logic ---
 
 class TaskScheduler:
-    """
-    Implements the core scheduler, dispatcher, and worker threads.
-    It manages the main task queue and dispatches tasks to dedicated
-    CPU and GPU worker queues.
-    """
-
     def __init__(self, policy: ExecutionPolicy = ExecutionPolicy.PRIORITY):
         self.policy_type = policy
-        
-        # Policy Switch implementation.
-        # Select the queue type based on the chosen policy.
         if self.policy_type == ExecutionPolicy.PRIORITY:
-            # PriorityQueue automatically handles task ordering based on the
-            # Task object's __lt__ method (priority, then submission time).
             self.task_queue = queue.PriorityQueue()
             print("Scheduler initialized with PRIORITY policy.")
         else:
-            #  Round-Robin.
             self.task_queue = queue.Queue()
             print("Scheduler initialized with ROUND_ROBIN (FIFO) policy.")
 
-        # Dedicated queues for workers
         self.cpu_queue = queue.Queue()
         self.gpu_queue = queue.Queue()
         self.stop_event = threading.Event()
 
-        # Worker threads
         self.dispatcher_thread = threading.Thread(target=self._dispatch_loop, daemon=True)
         self.cpu_worker_thread = threading.Thread(target=self._cpu_worker, daemon=True)
         self.gpu_worker_thread = threading.Thread(target=self._gpu_worker, daemon=True)
 
     def start_workers(self):
-        """Starts all background threads."""
         print("Starting Dispatcher, CPU Worker, and GPU Worker threads...")
-        print("\n")
         self.dispatcher_thread.start()
         self.cpu_worker_thread.start()
         self.gpu_worker_thread.start()
 
     def submit_task(self, task: Task):
-        """Public method for submitting a new task to the scheduler."""
         print(f"[QUEUE] Submitted Task {task.task_id[:6]} (Type: {task.task_type.name}, Prio: {task.priority}, Size: {task.size})")
-        # The queue itself handles the policy (FIFO vs Priority).
         self.task_queue.put(task)
 
     def _decide_device(self, task: Task):
-        """
-        THIS IS THE CORE SCHEDULING LOGIC.
-        
-        Currently implements the simple heuristic policy from your attempt2.cu file.
-       
-        
-        *** ROADMAP INTEGRATION: ***
-        This method is where you will integrate your ML model from model_training.ipynb.
-       
-        
-        You would:
-        1. Collect current system stats (psutil, pynvml) per Phase 3.
-        2. Create a feature vector (e.g., [task.size, cpu_load, gpu_util, ...]).
-        3. Scale the features using your saved scaler.
-        4. pred = self.ml_model.predict(features_scaled)
-        5. if pred == 0: return "GPU" else: return "CPU"
-        """
-        
-        # Using heuristic from attempt2.cu as placeholder
+        # Heuristic: NN training is almost always better on GPU
+        if task.task_type == TaskType.NEURAL_NETWORK_TRAINING:
+            return "GPU"
         if task.task_type == TaskType.VECTOR_ADD and task.size > 1000:
             return "GPU"
-        if task.task_type == TaskType.MATRIX_MUL and task.size > 128: # N > 128
+        if task.task_type == TaskType.MATRIX_MUL and task.size > 128:
             return "GPU"
-            
         return "CPU"
 
     def _dispatch_loop(self):
-        """
-        Phase 1: Dispatcher.
-        Continuously pulls tasks from the main policy queue (Priority or RR)
-        and dispatches them to the correct worker queue based on the decision logic.
-        """
         while not self.stop_event.is_set():
             try:
-                # Blocks until a task is available.
-                # Gets the HIGHEST PRIORITY task (if PriorityQueue)
-                # or NEXT task (if FIFO Queue).
                 task = self.task_queue.get()
-                if task is None:
-                    continue
-
-                # Phase 3/4 integration point:
-                # Get system state (pynvml, psutil) BEFORE making decision.
-                # gpu_status = self.monitoring.get_status()
-                
-                destination = self._decide_device(task) # Call policy
-                
-                if destination == "GPU":
-                    # print(f"[DISPATCH] Task {task.task_id[:6]} -> GPU")
-                    self.gpu_queue.put(task)
-                else:
-                    # print(f"[DISPATCH] Task {task.task_id[:6]} -> CPU")
-                    self.cpu_queue.put(task)
-                
+                if task is None: continue
+                destination = self._decide_device(task)
+                if destination == "GPU": self.gpu_queue.put(task)
+                else: self.cpu_queue.put(task)
                 self.task_queue.task_done()
-
-            except Exception as e:
-                print(f"[DISPATCH-ERROR] {e}")
-                time.sleep(0.1)
+            except Exception as e: print(f"[DISPATCH-ERROR] {e}")
 
     def _cpu_worker(self):
-        """
-        Worker thread that processes tasks from the cpu_queue.
-        """
         while not self.stop_event.is_set():
             try:
                 task = self.cpu_queue.get()
-                if task is None:
-                    continue
+                if task is None: continue
                 
                 start_time = time.perf_counter()
                 if task.task_type == TaskType.VECTOR_ADD:
                     Kernels.cpu_vector_add(task.data['a'], task.data['b'])
                 elif task.task_type == TaskType.MATRIX_MUL:
                     Kernels.cpu_matrix_mul(task.data['a'], task.data['b'])
+                elif task.task_type == TaskType.NEURAL_NETWORK_TRAINING:
+                    Kernels.train_neural_network(task.data['X_train'], task.data['Y_train'], task.data['iterations'])
                 
                 duration = (time.perf_counter() - start_time) * 1000
-                print(f"  [CPU-WORKER] Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
+                print(f"  [CPU-WORKER] ✅ Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
                 self.cpu_queue.task_done()
-                
             except Exception as e:
                 print(f"[CPU-WORKER-ERROR] {e}")
                 self.cpu_queue.task_done()
 
     def _gpu_worker(self):
-        """
-        Worker thread that processes tasks from the gpu_queue.
-        Handles data transfer to/from the GPU.
-        Includes basic Phase 4 Fallback Handling (try/except).
-        """
         while not self.stop_event.is_set():
             try:
                 task = self.gpu_queue.get()
-                if task is None:
-                    continue
-
+                if task is None: continue
                 start_time = time.perf_counter()
-                
-                # 1. Transfer data from Host (RAM) to Device (VRAM)
-                a_gpu = cp.asarray(task.data['a'])
-                b_gpu = cp.asarray(task.data['b'])
-                
-                # 2. Execute kernel
-                if task.task_type == TaskType.VECTOR_ADD:
-                    result_gpu = Kernels.gpu_vector_add(a_gpu, b_gpu)
-                elif task.task_type == TaskType.MATRIX_MUL:
-                    result_gpu = Kernels.gpu_matrix_mul(a_gpu, b_gpu)
-                
-                # 3. Synchronize: Wait for kernel to finish and transfer result back
-                cp.cuda.Stream.null.synchronize()
-                result_host = cp.asnumpy(result_gpu) # Transfer Device -> Host
 
+                if task.task_type == TaskType.NEURAL_NETWORK_TRAINING:
+                    # Specific data handling for NN training
+                    X_train_gpu = cp.asarray(task.data['X_train'])
+                    Y_train_gpu = cp.asarray(task.data['Y_train'])
+                    Kernels.train_neural_network(X_train_gpu, Y_train_gpu, task.data['iterations'])
+                else:
+                    # Standard data handling for other tasks
+                    a_gpu = cp.asarray(task.data['a'])
+                    b_gpu = cp.asarray(task.data['b'])
+                    if task.task_type == TaskType.VECTOR_ADD: Kernels.gpu_vector_add(a_gpu, b_gpu)
+                    elif task.task_type == TaskType.MATRIX_MUL: Kernels.gpu_matrix_mul(a_gpu, b_gpu)
+                
+                cp.cuda.Stream.null.synchronize()
                 duration = (time.perf_counter() - start_time) * 1000
                 print(f"  [GPU-WORKER] Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
                 self.gpu_queue.task_done()
-
-            except cp.cuda.runtime.CudaError as e:
-                # --- Phase 4: Graceful Degradation / Fallback Handling ---
-                print(f"  [GPU-WORKER-ERROR] CUDA Error on Task {task.task_id[:6]}: {e}. FALLING BACK TO CPU.")
-                # Re-queue the failed task to the CPU queue instead of failing.
-                self.cpu_queue.put(task) 
-                self.gpu_queue.task_done()
             except Exception as e:
-                print(f"[GPU-WORKER-ERROR] General Error: {e}")
+                print(f"[GPU-WORKER-ERROR] Error on Task {task.task_id[:6]}. Re-queueing to CPU. Error: {e}")
+                self.cpu_queue.put(task)
                 self.gpu_queue.task_done()
-
 
     def shutdown(self):
-        """Waits for all queues to empty then stops worker threads."""
         print("\nShutting down scheduler...")
-        # Wait for all submitted tasks to be processed
-        self.task_queue.join()
-        self.cpu_queue.join()
-        self.gpu_queue.join()
-        
-        # Stop the worker loops
+        self.task_queue.join(); self.cpu_queue.join(); self.gpu_queue.join()
         self.stop_event.set()
-        # Add dummy tasks to unblock workers waiting on .get()
-        self.task_queue.put(None) 
-        self.cpu_queue.put(None)
-        self.gpu_queue.put(None)
-        print("\n")
+        self.task_queue.put(None); self.cpu_queue.put(None); self.gpu_queue.put(None)
         print("All tasks complete. Shutdown complete.")
-
 
 # --- Phase 5: Workload Generator & Demo ---
 
-def workload_generator(scheduler, num_tasks=20):
-    """Submits a mix of random tasks to the scheduler."""
-    print(f" Starting Workload Generator: Submitting {num_tasks} mixed tasks ")
-    for i in range(num_tasks):
-        # Generate a random task
-        priority = random.randint(1, 10) # 1 = highest prio
-        task_choice = random.choice([TaskType.VECTOR_ADD, TaskType.MATRIX_MUL])
-        
-        if task_choice == TaskType.VECTOR_ADD:
-            # Small tasks (heuristic picks CPU), Large tasks (heuristic picks GPU)
-            size = random.choice([500, 50_000_000]) 
-            a = np.random.rand(size).astype(np.float32)
-            b = np.random.rand(size).astype(np.float32)
-        
-        else: # MATRIX_MUL
-            # Small tasks (CPU), Large tasks (GPU)
-            size = random.choice([50, 500]) # N (size x size matrix)
-            a = np.random.rand(size, size).astype(np.float32)
-            b = np.random.rand(size, size).astype(np.float32)
+def workload_generator(scheduler, num_tasks=10):
+    print(f"--- Starting Workload Generator: Submitting {num_tasks} mixed tasks ---")
+    
+    # Pre-load NN training data once
+    try:
+        train_df = pd.read_csv('C:/Users/suraj/Desktop/OS PROJECT/GPU-Offloading-Task-Scheduler/Task Scheduler Prototype/data_csv/test.csv')
+        data = train_df.values
+        np.random.shuffle(data)
+        X = data[:, 1:].T / 255.0
+        Y = data[:, 0].astype(int)
+        nn_data_loaded = True
+    except FileNotFoundError:
+        print("WARNING: 'data_csv/train.csv' not found. Skipping NN tasks.")
+        nn_data_loaded = False
 
-        task = Task(
-            priority=priority,
-            task_type=task_choice,
-            size=size,
-            data={'a': a, 'b': b}
-        )
+    for _ in range(num_tasks):
+        priority = random.randint(1, 10)
+        
+        # Add NN training to the mix of possible tasks
+        task_choices = [TaskType.VECTOR_ADD, TaskType.MATRIX_MUL]
+        if nn_data_loaded:
+            task_choices.append(TaskType.NEURAL_NETWORK_TRAINING)
+        
+        task_choice = random.choice(task_choices)
+        
+        if task_choice == TaskType.NEURAL_NETWORK_TRAINING:
+            iterations = random.randint(90, 400)
+            task = Task(priority=priority, task_type=task_choice, size=iterations,
+                        data={'X_train': X, 'Y_train': Y, 'iterations': iterations})
+        else:
+            size = random.choice([50, 500]) if task_choice == TaskType.MATRIX_MUL else random.choice([500, 500000])
+            a = np.random.rand(size, size).astype(np.float32) if task_choice == TaskType.MATRIX_MUL else np.random.rand(size).astype(np.float32)
+            b = np.random.rand(size, size).astype(np.float32) if task_choice == TaskType.MATRIX_MUL else np.random.rand(size).astype(np.float32)
+            task = Task(priority=priority, task_type=task_choice, size=size, data={'a': a, 'b': b})
+            
         scheduler.submit_task(task)
-        time.sleep(random.uniform(0.05, 0.2)) # Submit tasks intermittently
+        time.sleep(random.uniform(0.1, 0.3))
 
 if __name__ == "__main__":
+    # Ensure you have a 'data_csv/train.csv' file for the demo to run fully.
     
-    # --- DEMO 1: PRIORITY POLICY ---
-    # Tasks will be executed primarily by priority (1 is highest).
-    # Note how high-priority tasks (like Prio: 1) submitted LATER 
-    # jump ahead of low-priority tasks submitted EARLIER.
-    
-    # Initialize scheduler using the policy from Phase 2
-    priority_scheduler = TaskScheduler(policy=ExecutionPolicy.PRIORITY)
-    priority_scheduler.start_workers()
-    workload_generator(priority_scheduler, num_tasks=10)
-    
-    # Wait for all tasks to finish before shutting down
-    priority_scheduler.shutdown()
-
-    print("\n" + "="*50 + "\n")
-    
-    # --- DEMO 2: ROUND ROBIN (FIFO) POLICY ---
-    # Tasks will be executed strictly in the order they are submitted,
-    # regardless of their priority value.
-    
-    rr_scheduler = TaskScheduler(policy=ExecutionPolicy.ROUND_ROBIN)
-    rr_scheduler.start_workers()
-    workload_generator(rr_scheduler, num_tasks=10)
-    rr_scheduler.shutdown()
+    scheduler = TaskScheduler(policy=ExecutionPolicy.PRIORITY)
+    scheduler.start_workers()
+    workload_generator(scheduler, num_tasks=15)
+    scheduler.shutdown()
