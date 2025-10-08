@@ -182,7 +182,7 @@ class TaskScheduler:
                     Kernels.train_neural_network(task.data['X_train'], task.data['Y_train'], task.data['iterations'])
                 
                 duration = (time.perf_counter() - start_time) * 1000
-                print(f"  [CPU-WORKER] ✅ Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
+                print(f"  [CPU-WORKER] Completed Task {task.task_id[:6]} (Prio: {task.priority}) in {duration:.4f} ms")
                 self.cpu_queue.task_done()
             except Exception as e:
                 print(f"[CPU-WORKER-ERROR] {e}")
