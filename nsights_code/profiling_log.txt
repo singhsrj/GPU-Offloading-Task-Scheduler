@@ -1,0 +1,7 @@
+🔧 Activating virtual environment...
+🚀 Starting data collection for ML model training...
+-----------------------------------------------------
+📊 Profiling with NUMBA_NUM_THREADS=1
+-----------------------------------------------------
+/mnt/d/OSprojects/GPU-Offloading-Task-Scheduler/gpu_env/lib/python3.12/site-packages/numpy/__config__.py:155: UserWarning: Install `pyyaml` for better output
+  warnings.warn("Install `pyyaml` for better output", stacklevel=1)
