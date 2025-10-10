@@ -65,19 +65,19 @@ def predict(model_data, task_name, size, num_threads):
 
 def main():
     # Load model
-    model_data = load_model('xgboost_model.pkl')
+    model_data = load_model('/mnt/d/OSprojects/GPU-Offloading-Task-Scheduler/nsights_code/xgboost_model.pkl')
     
     print("\nExample Predictions:")
     print("-" * 60)
     
     # Test cases
     examples = [
-        ('VectorAddition', 1000, 4),
-        ('VectorAddition', 1000000, 8),
-        ('MatrixMultiplication', 64, 4),
-        ('MatrixMultiplication', 512, 8),
-        ('ParallelReduction', 10000, 2),
-        ('ParallelReduction', 10000000, 16),
+        ('VectorAddition', 100, 12),
+        #('VectorAddition', 1000000, 8),
+        ('MatrixMultiplication', 640, 12),
+        ('MatrixMultiplication', 5120, 8),
+        # ('ParallelReduction', 10000, 2),
+        ('ParallelReduction', 100, 16),
     ]
     
     for task, size, threads in examples:

@@ -47,6 +47,7 @@ def example_1_vector_addition():
     scheduler.shutdown()
 
 
+
 def example_2_matrix_multiplication():
     """Example: Matrix multiplication tasks"""
     print("\n" + "="*70)
@@ -83,7 +84,7 @@ def example_2_matrix_multiplication():
     scheduler.submit_task(task2)
     
     # Large matrix (will go to GPU)
-    large_size = 512
+    large_size = 4000
     a = np.random.rand(large_size, large_size).astype(np.float32)
     b = np.random.rand(large_size, large_size).astype(np.float32)
     

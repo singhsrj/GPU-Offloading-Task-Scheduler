@@ -61,9 +61,25 @@ class Kernels:
         return np.add(a, b)
 
     @staticmethod
-    def gpu_vector_add(a_gpu, b_gpu):
-        """Vector addition on GPU"""
-        return cp.add(a_gpu, b_gpu)
+    def gpu_vector_add(a, b):
+
+        """
+        Perform element-wise vector addition on the GPU using CuPy.
+        Args:
+            a (cupy.ndarray): First input vector.
+            b (cupy.ndarray): Second input vector.
+        Returns:
+            cupy.ndarray: Resultant vector.
+        """
+        # Ensure inputs are on the GPU
+        a_gpu = cp.array(a)
+        b_gpu = cp.array(b)
+
+        # Perform addition on the GPU
+        result_gpu = a_gpu + b_gpu
+
+        return result_gpu
+
 
     @staticmethod
     def cpu_matrix_mul(a, b):
@@ -71,19 +87,47 @@ class Kernels:
         return np.dot(a, b)
 
     @staticmethod
-    def gpu_matrix_mul(a_gpu, b_gpu):
-        """Matrix multiplication on GPU"""
-        return cp.dot(a_gpu, b_gpu)
+    def gpu_matrix_mul(a, b):
+   
+        """
+        Perform matrix multiplication on the GPU using CuPy.
+        Args:
+            a (cupy.ndarray): First input matrix.
+            b (cupy.ndarray): Second input matrix.
+        Returns:
+            cupy.ndarray: Resultant matrix.
+        """
+        # Ensure inputs are on the GPU
+        a_gpu = cp.array(a)
+        b_gpu = cp.array(b)
 
+        # Perform matrix multiplication on the GPU
+        result_gpu = cp.dot(a_gpu, b_gpu)
+
+        return result_gpu
     @staticmethod
     def cpu_parallel_reduction(arr):
         """Parallel reduction (sum) on CPU"""
         return np.sum(arr)
 
     @staticmethod
-    def gpu_parallel_reduction(arr_gpu):
-        """Parallel reduction (sum) on GPU"""
-        return cp.sum(arr_gpu)
+    def gpu_parallel_reduction(arr):
+ 
+        """
+        Perform parallel reduction (sum) on the GPU using CuPy.
+        Args:
+            arr (cupy.ndarray): Input array.
+        Returns:
+            float: Sum of all elements in the array.
+        """
+        # Ensure input is on the GPU
+        arr_gpu = cp.array(arr)
+
+        # Perform reduction (sum) on the GPU
+        result_gpu = cp.sum(arr_gpu)
+
+        return result_gpu
+
 
 
 # ============================================================================
